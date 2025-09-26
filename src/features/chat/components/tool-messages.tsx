@@ -50,12 +50,13 @@ function AssistantNotice({
   details?: unknown;
 }) {
   const Icon = icon;
+  const isLoader = icon === Loader2;
   return (
     <Message from={role}>
       <MessageContent className="max-w-[80%]">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 rounded-full bg-muted p-2">
-            <Icon className="size-4" />
+            <Icon className={`size-4 ${isLoader ? 'animate-spin' : ''}`} />
           </span>
           <div className="space-y-1">
             <p className="text-sm font-medium">{title}</p>

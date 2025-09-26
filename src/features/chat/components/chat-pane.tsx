@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -74,6 +74,12 @@ type FilterInput = {
 };
 
 const PROCESS_CELLS_CONCURRENCY = 10;
+
+// Define the type for our AI-generated suggestions
+type AISuggestion = {
+  title: string;
+  prompt: string;
+};
 
 const applyFilter = (
   data: Record<string, unknown>[],
@@ -322,6 +328,56 @@ export function ChatPane() {
     },
   });
   const [input, setInput] = useState("");
+  const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+
+  // Fetch AI-generated suggestions when mappedJson becomes available
+  useEffect(() => {
+    if (mappedJson.length > 0 && tableSchema.length > 0) {
+      setIsGeneratingSuggestions(true);
+      const fetchSuggestions = async () => {
+        try {
+          const response = await fetch('/api/generate-suggestions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              schema: tableSchema, 
+              sampleData: mappedJson.slice(0, 5) // Send slightly larger sample
+            }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setSuggestions(data.suggestions || []);
+          }
+        } catch (error) {
+          console.error("Failed to fetch AI suggestions:", error);
+          // Set fallback suggestions if API fails
+          setSuggestions([
+            { title: "Clean Text Fields", prompt: "Trim whitespace from all text fields" },
+            { title: "Fill Empty Values", prompt: "Fill empty cells with appropriate default values" },
+            { title: "Standardize Format", prompt: "Standardize the format of all data fields" }
+          ]);
+        } finally {
+          setIsGeneratingSuggestions(false);
+        }
+      };
+      fetchSuggestions();
+    }
+  }, [mappedJson, tableSchema]);
+
+  const handleSuggestionClick = useCallback((prompt: string) => {
+    sendMessage(
+      { text: prompt },
+      {
+        body: {
+          metadata: { schema: tableSchema, sampleData },
+        }
+      }
+    );
+    setInput("");
+  }, [sendMessage, tableSchema, sampleData]);
+
   const {
     page,
     totalPages,
@@ -470,6 +526,49 @@ export function ChatPane() {
             <CardContent className="flex h-[520px] flex-col">
               <Conversation className="flex-1">
                 <ConversationContent>
+                  {/* Show suggestions when conversation is empty */}
+                  {messages.length === 0 && (
+                    <div className="space-y-4 p-4">
+                      {isGeneratingSuggestions ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="text-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                            <p className="text-sm text-muted-foreground">Generating smart suggestions...</p>
+                          </div>
+                        </div>
+                      ) : suggestions.length > 0 ? (
+                        <div className="space-y-3">
+                          <p className="text-sm text-muted-foreground text-center">
+                            Here are some suggested actions to get you started:
+                          </p>
+                          <div className="grid gap-2">
+                            {suggestions.map((suggestion, index) => (
+                              <Button
+                                key={index}
+                                variant="outline"
+                                className="h-auto p-3 text-left justify-start"
+                                onClick={() => handleSuggestionClick(suggestion.prompt)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="text-xs">
+                                    {index + 1}
+                                  </Badge>
+                                  <span className="text-sm font-medium">{suggestion.title}</span>
+                                </div>
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <p className="text-sm text-muted-foreground">
+                            Start by asking me to clean, validate, or transform your data.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {messages.map((message) => (
                     <div key={message.id}>
                       {message.parts.map((part, i) => {

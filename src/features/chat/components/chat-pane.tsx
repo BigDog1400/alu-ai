@@ -4,7 +4,6 @@ import { Fragment, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Pagination,
   PaginationContent,
@@ -23,6 +22,7 @@ import { Message, MessageContent } from "@/components/ai-elements/message";
 import { Response } from "@/components/ai-elements/response";
 import { Actions, Action } from "@/components/ai-elements/actions";
 import { Loader } from "@/components/ai-elements/loader";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import {
   PromptInput,
   PromptInputBody,
@@ -32,7 +32,7 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { useChat } from "@ai-sdk/react";
-import { ArrowLeft, ArrowRight, Sparkles, AlertCircle, CopyIcon, RefreshCcwIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, CopyIcon, RefreshCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 10;
@@ -185,6 +185,22 @@ export function ChatPane() {
                                 </Actions>
                               )}
                             </Fragment>
+                          );
+                        }
+                        if (part.type === "reasoning") {
+                          return (
+                            <Reasoning
+                              key={`${message.id}-${i}`}
+                              className="w-full"
+                              isStreaming={
+                                status === "streaming" &&
+                                i === message.parts.length - 1 &&
+                                message.id === messages.at(-1)?.id
+                              }
+                            >
+                              <ReasoningTrigger />
+                              <ReasoningContent>{part.text}</ReasoningContent>
+                            </Reasoning>
                           );
                         }
                         return null;

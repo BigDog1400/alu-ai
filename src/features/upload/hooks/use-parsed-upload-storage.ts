@@ -15,6 +15,14 @@ const MAPPING_CONFIRMED_EVENT = "alu:mappingConfirmedChanged";
 
 export type ColumnMap = Record<string, string | null>;
 
+const normalizeParsedUpload = (value: ParsedUpload | null): ParsedUpload | null => {
+  if (!value) return null;
+  return {
+    ...value,
+    aiSuggestedMap: value.aiSuggestedMap ?? {},
+  };
+};
+
 const parsedUploadAtom = atom<ParsedUpload | null>(null);
 parsedUploadAtom.onMount = (set) => {
   if (typeof window === "undefined") return;
@@ -22,7 +30,8 @@ parsedUploadAtom.onMount = (set) => {
   const load = () => {
     try {
       const raw = localStorage.getItem(PARSED_UPLOAD_KEY);
-      set(raw ? JSON.parse(raw) : null);
+      const parsed = raw ? (JSON.parse(raw) as ParsedUpload) : null;
+      set(normalizeParsedUpload(parsed));
     } catch {
       set(null);
     }
@@ -36,15 +45,16 @@ parsedUploadAtom.onMount = (set) => {
 };
 
 const parsedUploadWriteAtom = atom(null, (_get, set, value: ParsedUpload | null) => {
-  set(parsedUploadAtom, value);
+  const normalized = normalizeParsedUpload(value);
+  set(parsedUploadAtom, normalized);
 
   if (typeof window === "undefined") return;
 
   try {
-    if (value === null) {
+    if (normalized === null) {
       localStorage.removeItem(PARSED_UPLOAD_KEY);
     } else {
-      localStorage.setItem(PARSED_UPLOAD_KEY, JSON.stringify(value));
+      localStorage.setItem(PARSED_UPLOAD_KEY, JSON.stringify(normalized));
     }
     window.dispatchEvent(new Event(PARSED_UPLOAD_EVENT));
   } catch {}

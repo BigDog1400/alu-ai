@@ -1,13 +1,7 @@
 import * as XLSX from "xlsx";
 
-export type ParsedUpload = {
-  filename: string;
-  sheetName: string;
-  headers: string[];
-  rows: Record<string, unknown>[];
-  previewRows: Record<string, unknown>[];
-  totalRows: number;
-};
+import type { ParsedUpload } from "@/features/upload/types";
+import { generateAiColumnMapping } from "@/features/upload/server/generate-column-mapping";
 
 function buildRowObject(headers: string[], row: unknown[]): Record<string, unknown> {
   return headers.reduce<Record<string, unknown>>((acc, header, index) => {
@@ -57,6 +51,8 @@ export async function parseUploadedFile(file: File): Promise<ParsedUpload> {
     .map((row) => buildRowObject(headers, row))
     .filter((row) => !isEmptyRow(row));
 
+  const aiSuggestedMap = await generateAiColumnMapping(headers, rows.slice(0, 5));
+
   return {
     filename: file.name,
     sheetName: firstSheetName,
@@ -64,5 +60,6 @@ export async function parseUploadedFile(file: File): Promise<ParsedUpload> {
     rows,
     previewRows: rows.slice(0, 3),
     totalRows: rows.length,
+    aiSuggestedMap,
   };
 }

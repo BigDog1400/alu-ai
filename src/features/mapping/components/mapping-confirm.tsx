@@ -27,8 +27,18 @@ export function MappingConfirm() {
     const expectedKeys = PRODUCT_FIELDS.map((f) => f.key);
     const needsSeed = expectedKeys.some((k) => !currentKeys.includes(k));
     if (needsSeed) {
-      const seeded = autoMapFields(headers, PRODUCT_FIELDS);
-      saveColumnMap(seeded);
+      const fallback = autoMapFields(headers, PRODUCT_FIELDS);
+      const aiSuggested = parsedUpload.aiSuggestedMap ?? {};
+      const merged = PRODUCT_FIELDS.reduce<Record<string, string | null>>((acc, field) => {
+        const aiValue = aiSuggested[field.key];
+        if (aiValue && headers.includes(aiValue)) {
+          acc[field.key] = aiValue;
+        } else {
+          acc[field.key] = fallback[field.key] ?? null;
+        }
+        return acc;
+      }, {});
+      saveColumnMap(merged);
     }
   }, [parsedUpload, headers, columnMap, saveColumnMap]);
 
@@ -67,6 +77,8 @@ export function MappingConfirm() {
                 .filter((value) => value !== null && value !== undefined && String(value).trim().length > 0)
                 .map((value) => String(value));
               const uniqueSamples = Array.from(new Set(sampleValues)).slice(0, 3);
+              const aiSuggestion = parsedUpload.aiSuggestedMap?.[field.key] ?? null;
+              const isUsingSuggestion = aiSuggestion !== null && columnMap[field.key] === aiSuggestion;
 
               return (
                 <div
@@ -94,6 +106,12 @@ export function MappingConfirm() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {aiSuggestion ? (
+                        <p className="text-xs text-muted-foreground/80">
+                          Suggested: <span className="font-medium text-foreground">{aiSuggestion}</span>
+                          {isUsingSuggestion ? " (applied)" : ""}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="hidden items-center justify-center md:flex">

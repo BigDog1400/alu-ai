@@ -1,11 +1,14 @@
 "use client";
 
-import { AlertCircle, FileSpreadsheet, UploadCloud } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertCircle, FileSpreadsheet, UploadCloud, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/utils/format-bytes";
 import { MAX_FILE_SIZE } from "../constants";
 import { useUploadDropzone } from "../hooks/use-upload-dropzone";
+import { parseUpload } from "../services/parse-upload";
+import { useParsedUploadStorage } from "@/features/upload/hooks/use-parsed-upload-storage";
 
 export function UploadCard() {
   const {
@@ -18,6 +21,35 @@ export function UploadCard() {
     uploadError,
     clearSelection,
   } = useUploadDropzone();
+
+  const { saveParsedUpload } = useParsedUploadStorage();
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!uploadedFile) return;
+      setIsParsing(true);
+      setParseError(null);
+      try {
+        const data = await parseUpload(uploadedFile);
+        if (!cancelled) {
+          saveParsedUpload(data); // triggers AppFlow to move to MappingConfirm
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setParseError(err instanceof Error ? err.message : "Failed to parse file.");
+        }
+      } finally {
+        if (!cancelled) setIsParsing(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadedFile, saveParsedUpload]);
 
   return (
     <Card className="w-full">
@@ -69,6 +101,13 @@ export function UploadCard() {
           </div>
         )}
 
+        {parseError && (
+          <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 size-5 shrink-0" />
+            <p>{parseError}</p>
+          </div>
+        )}
+
         {uploadedFile ? (
           <div className="flex flex-col gap-4 rounded-md border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
@@ -81,8 +120,14 @@ export function UploadCard() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs uppercase tracking-wide text-primary">Ready for parsing</span>
-              <Button type="button" variant="ghost" size="sm" onClick={clearSelection}>
+              {isParsing ? (
+                <span className="inline-flex items-center text-xs uppercase tracking-wide text-primary">
+                  <Loader2 className="mr-2 size-4 animate-spin" /> Parsing file...
+                </span>
+              ) : (
+                <span className="text-xs uppercase tracking-wide text-primary">Ready for mapping</span>
+              )}
+              <Button type="button" variant="ghost" size="sm" onClick={clearSelection} disabled={isParsing}>
                 Remove
               </Button>
             </div>

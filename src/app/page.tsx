@@ -1,4 +1,4 @@
-import { UploadCard } from "@/features/upload/components/upload-card";
+import { AppFlow } from "@/features/app/app-flow";
 
 export default function Home() {
   return (
@@ -17,7 +17,7 @@ export default function Home() {
             refinement in the next steps.
           </p>
         </header>
-        <UploadCard />
+        <AppFlow />
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight } from "lucide-react";
+import { toast } from "sonner";
 import { PRODUCT_FIELDS } from "../fields";
 import type { FieldDef } from "../types";
 import { autoMapFields } from "../utils/auto-map";
@@ -68,7 +69,10 @@ export function MappingConfirm() {
               const uniqueSamples = Array.from(new Set(sampleValues)).slice(0, 3);
 
               return (
-                <div key={field.key} className="space-y-3 rounded-md border border-border/90 p-4">
+                <div
+                  key={field.key}
+                  className="space-y-3 rounded-md border border-border/80 p-4"
+                >
                   <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
                     <div className="space-y-2">
                       <Label className="text-xs uppercase tracking-wide text-muted-foreground md:hidden">
@@ -139,6 +143,7 @@ export function MappingConfirm() {
                 const full = applyColumnMap(parsedUpload.rows, columnMap, PRODUCT_FIELDS);
                 saveMappedJson(full);
                 saveMappingConfirmed(true);
+                toast.success("Mapping confirmed. Ready for refinement.");
               }}
             >
               Confirm mapping

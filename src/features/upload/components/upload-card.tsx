@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertCircle, FileSpreadsheet, UploadCloud, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/utils/format-bytes";
@@ -30,19 +31,28 @@ export function UploadCard() {
     let cancelled = false;
     async function run() {
       if (!uploadedFile) return;
+      const toastId = toast.loading("Parsing file…");
       setIsParsing(true);
       setParseError(null);
       try {
         const data = await parseUpload(uploadedFile);
         if (!cancelled) {
           saveParsedUpload(data); // triggers AppFlow to move to MappingConfirm
+          toast.success("File parsed successfully.", { id: toastId });
         }
       } catch (err) {
         if (!cancelled) {
           setParseError(err instanceof Error ? err.message : "Failed to parse file.");
+          toast.error(
+            err instanceof Error ? err.message : "Failed to parse file. Please try again.",
+            { id: toastId },
+          );
         }
       } finally {
         if (!cancelled) setIsParsing(false);
+        if (!cancelled) {
+          toast.dismiss(toastId);
+        }
       }
     }
     run();

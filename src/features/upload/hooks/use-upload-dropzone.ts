@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
+import { toast } from "sonner";
 import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE } from "../constants";
 import { getRejectionMessage } from "../utils/get-rejection-message";
 
@@ -13,6 +14,8 @@ export function useUploadDropzone() {
     if (rejections.length) {
       setUploadError(getRejectionMessage(rejections));
       setUploadedFile(null);
+      const message = getRejectionMessage(rejections) ?? "File rejected";
+      toast.error(message);
       return;
     }
 
@@ -20,6 +23,7 @@ export function useUploadDropzone() {
     if (file) {
       setUploadedFile(file);
       setUploadError(null);
+      toast.success("File selected. Parsing now…");
     }
   }, []);
 
@@ -35,6 +39,7 @@ export function useUploadDropzone() {
   const clearSelection = useCallback(() => {
     setUploadedFile(null);
     setUploadError(null);
+    toast.info("Upload cleared");
   }, []);
 
   return {

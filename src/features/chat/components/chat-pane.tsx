@@ -23,6 +23,7 @@ import { useParsedUploadStorage } from "@/features/upload/hooks/use-parsed-uploa
 import { PRODUCT_FIELDS } from "@/features/mapping/fields";
 import { usePagination } from "@/features/chat/hooks/use-pagination";
 import { DataPreviewTable } from "@/features/chat/components/data-preview-table";
+import { ToolPartMessage } from "@/features/chat/components/tool-messages";
 import {
   Conversation,
   ConversationContent,
@@ -55,7 +56,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AIDevtools } from "@ai-sdk-tools/devtools";
-import { ChatOnToolCallCallback, UIMessage } from "ai";
+import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 
 type FilterInput = {
   field: string;
@@ -106,46 +107,46 @@ export function ChatPane() {
     if (mappedJson.length === 0) return [];
     return Object.keys(mappedJson[0]);
   }, [mappedJson]);
-
   const sampleData = useMemo(() => {
     return mappedJson.slice(0, 3); // Send only the first 3 rows as samples
   }, [mappedJson]);
 
-  console.log("Mapped JSON:", mappedJson);
-
-  const handleSomething = async () => {
-    console.log(mappedJson);
-    debugger;
-  };
-
-  const { messages, sendMessage, regenerate, status } = useChat({
+  const { messages, sendMessage, regenerate, status, addToolResult } = useChat({
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
-      
       if (toolCall.toolName === "directUpdateTool") {
         const { filter, newValues } = toolCall.input as {
           filter?: FilterInput;
           newValues: Record<string, unknown>;
         };
         const indicesToUpdate = applyFilter(mappedJson, filter);
-
         const newData = [...mappedJson];
         indicesToUpdate.forEach((index) => {
           newData[index] = { ...newData[index], ...newValues };
         });
         saveMappedJson(newData);
 
-        // Following the blog's advice to return meaningful context
         const resultMessage = filter
           ? `Updated ${indicesToUpdate.length} rows matching the criteria.`
           : `Updated ${indicesToUpdate.length} rows (all rows).`;
 
         toast.success(resultMessage);
 
+        // Provide the tool result back to the AI stream so it can continue
+        if (!toolCall.dynamic) {
+          addToolResult({
+            tool: "directUpdateTool",
+            toolCallId: toolCall.toolCallId,
+            output: {
+              updatedRowCount: indicesToUpdate.length,
+              updatedFields: Object.keys(newValues ?? {}),
+              filterApplied: Boolean(filter),
+            },
+          });
+        }
+
         // Per-Cell Processing Tool Logic
       } else if (toolCall.toolName === "processCellsTool") {
-        console.log("Tool call:", toolCall);
-        console.log("Mapped JSON:", mappedJson);
-        handleSomething();
         const { filter, fieldToProcess, processingPrompt } = toolCall.input as {
           filter?: FilterInput;
           fieldToProcess: string;
@@ -154,20 +155,29 @@ export function ChatPane() {
 
         if (!fieldToProcess) {
           toast.error("processCellsTool did not specify a field to process.");
+          if (!toolCall.dynamic) {
+            addToolResult({
+              tool: "processCellsTool",
+              toolCallId: toolCall.toolCallId,
+              output: { error: "Missing fieldToProcess" },
+            });
+          }
           return;
-          
         }
-
-        debugger;
 
         const indicesToProcess = filter
           ? applyFilter(mappedJson, filter)
           : mappedJson.map((_, index) => index);
 
-          debugger;
-
         if (indicesToProcess.length === 0) {
           toast.info("No rows matched the requested transformation.");
+          if (!toolCall.dynamic) {
+            addToolResult({
+              tool: "processCellsTool",
+              toolCallId: toolCall.toolCallId,
+              output: { processedCount: 0, field: fieldToProcess, note: "No rows matched the filter." },
+            });
+          }
           return;
         }
 
@@ -201,11 +211,31 @@ export function ChatPane() {
           saveMappedJson(newData);
 
           toast.success("Transformation complete!");
+
+          // Provide tool result back so the assistant can continue
+          if (!toolCall.dynamic) {
+            addToolResult({
+              tool: "processCellsTool",
+              toolCallId: toolCall.toolCallId,
+              output: {
+                processedCount: results.length,
+                field: fieldToProcess,
+              },
+            });
+          }
         } catch (error: unknown) {
           const errorMessage = `An error occurred during processing: ${
             error instanceof Error ? error.message : "Unknown error"
           }`;
           toast.error(errorMessage);
+
+          if (!toolCall.dynamic) {
+            addToolResult({
+              tool: "processCellsTool",
+              toolCallId: toolCall.toolCallId,
+              output: { error: errorMessage },
+            });
+          }
         }
       }
     },
@@ -408,6 +438,20 @@ export function ChatPane() {
                             </Reasoning>
                           );
                         }
+
+                        if (
+                          part.type === "tool-directUpdateTool" ||
+                          part.type === "tool-processCellsTool"
+                        ) {
+                          return (
+                            <ToolPartMessage
+                              key={`${message.id}-${part.type}-${i}`}
+                              part={part}
+                              role={message.role}
+                            />
+                          );
+                        }
+
                         return null;
                       })}
                     </div>

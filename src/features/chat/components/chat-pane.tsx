@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -10,6 +10,14 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Pagination,
   PaginationContent,
@@ -49,14 +57,15 @@ import {
 import { useChat } from "@ai-sdk/react";
 import {
   ArrowLeft,
-  ArrowRight,
   Sparkles,
   CopyIcon,
   RefreshCcwIcon,
+  DownloadIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AIDevtools } from "@ai-sdk-tools/devtools";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { exportRowsToCsv, exportRowsToXlsx } from "@/features/chat/utils/export";
 
 type FilterInput = {
   field: string;
@@ -100,7 +109,7 @@ const applyFilter = (
 const PAGE_SIZE = 10;
 
 export function ChatPane() {
-  const { mappedJson, saveMappingConfirmed, saveMappedJson } =
+  const { mappedJson, parsedUpload, saveMappingConfirmed, saveMappedJson } =
     useParsedUploadStorage();
 
   const tableSchema = useMemo(() => {
@@ -110,6 +119,53 @@ export function ChatPane() {
   const sampleData = useMemo(() => {
     return mappedJson.slice(0, 3); // Send only the first 3 rows as samples
   }, [mappedJson]);
+  const columnLabels = useMemo(() => {
+    return PRODUCT_FIELDS.reduce<Record<string, string>>((acc, field) => {
+      acc[field.key] = field.label;
+      return acc;
+    }, {});
+  }, []);
+
+  const handleExport = useCallback(
+    (format: "csv" | "xlsx") => {
+      if (mappedJson.length === 0) {
+        toast.info("There's no transformed data to export yet.");
+        return;
+      }
+
+      const columns =
+        tableSchema.length > 0
+          ? tableSchema
+          : PRODUCT_FIELDS.map((field) => field.key);
+
+      const fileBaseName =
+        parsedUpload?.filename?.replace(/\.[^/.]+$/, "") ??
+        `alu-export-${new Date().toISOString().slice(0, 10)}`;
+
+      try {
+        const options = {
+          rows: mappedJson,
+          columns,
+          columnLabels,
+          fileBaseName,
+        };
+
+        if (format === "csv") {
+          exportRowsToCsv(options);
+        } else {
+          exportRowsToXlsx(options);
+        }
+
+        toast.success(
+          `Exported ${mappedJson.length} rows as ${format.toUpperCase()}.`
+        );
+      } catch (error) {
+        console.error("Export failed", error);
+        toast.error("We couldn't export the file. Please try again.");
+      }
+    },
+    [columnLabels, mappedJson, parsedUpload?.filename, tableSchema]
+  );
 
   const { messages, sendMessage, regenerate, status, addToolResult } = useChat({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
@@ -485,13 +541,33 @@ export function ChatPane() {
         <Button variant="outline" onClick={() => saveMappingConfirmed(false)}>
           <ArrowLeft className="mr-2 size-4" /> Back to Mapping
         </Button>
-        <Button
-          onClick={() =>
-            toast.info("Export flow is not implemented in this demo.")
-          }
-        >
-          Continue to Export <ArrowRight className="ml-2 size-4" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <DownloadIcon className="mr-2 size-4" /> Export Data
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>Export as</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                handleExport("csv");
+              }}
+            >
+              CSV (.csv)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                handleExport("xlsx");
+              }}
+            >
+              Excel (.xlsx)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {process.env.NODE_ENV === 'development' && (
         <AIDevtools />

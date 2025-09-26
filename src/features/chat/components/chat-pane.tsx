@@ -1,7 +1,13 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -17,12 +23,20 @@ import { useParsedUploadStorage } from "@/features/upload/hooks/use-parsed-uploa
 import { PRODUCT_FIELDS } from "@/features/mapping/fields";
 import { usePagination } from "@/features/chat/hooks/use-pagination";
 import { DataPreviewTable } from "@/features/chat/components/data-preview-table";
-import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
 import { Response } from "@/components/ai-elements/response";
 import { Actions, Action } from "@/components/ai-elements/actions";
 import { Loader } from "@/components/ai-elements/loader";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
 import {
   PromptInput,
   PromptInputBody,
@@ -32,19 +46,181 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { useChat } from "@ai-sdk/react";
-import { ArrowLeft, ArrowRight, Sparkles, CopyIcon, RefreshCcwIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Sparkles,
+  CopyIcon,
+  RefreshCcwIcon,
+} from "lucide-react";
 import { toast } from "sonner";
+import { AIDevtools } from "@ai-sdk-tools/devtools";
+import { ChatOnToolCallCallback, UIMessage } from "ai";
+
+type FilterInput = {
+  field: string;
+  condition: "equals" | "not_equals" | "is_empty" | "is_not_empty" | "contains";
+  value?: unknown;
+};
+
+const applyFilter = (
+  data: Record<string, unknown>[],
+  filter?: FilterInput
+) => {
+  if (!filter) return data.map((_, index) => index); // All indices if no filter
+
+  return data.reduce((acc, row, index) => {
+    const fieldValue = row[filter.field];
+    let match = false;
+    switch (filter.condition) {
+      case "equals":
+        match = fieldValue == filter.value;
+        break;
+      case "not_equals":
+        match = fieldValue != filter.value;
+        break;
+      case "is_empty":
+        match =
+          fieldValue === null || fieldValue === undefined || fieldValue === "";
+        break;
+      case "is_not_empty":
+        match =
+          fieldValue !== null && fieldValue !== undefined && fieldValue !== "";
+        break;
+      case "contains":
+        match = String(fieldValue).includes(filter.value as string);
+        break;
+    }
+    if (match) acc.push(index);
+    return acc;
+  }, [] as number[]);
+};
 
 const PAGE_SIZE = 10;
 
 export function ChatPane() {
-  const { mappedJson, saveMappingConfirmed } = useParsedUploadStorage();
-  const { messages, sendMessage, regenerate, status } = useChat();
+  const { mappedJson, saveMappingConfirmed, saveMappedJson } =
+    useParsedUploadStorage();
+
+  const tableSchema = useMemo(() => {
+    if (mappedJson.length === 0) return [];
+    return Object.keys(mappedJson[0]);
+  }, [mappedJson]);
+
+  const sampleData = useMemo(() => {
+    return mappedJson.slice(0, 3); // Send only the first 3 rows as samples
+  }, [mappedJson]);
+
+  console.log("Mapped JSON:", mappedJson);
+
+  const handleSomething = async () => {
+    console.log(mappedJson);
+    debugger;
+  };
+
+  const { messages, sendMessage, regenerate, status } = useChat({
+    onToolCall: async ({ toolCall }) => {
+      
+      if (toolCall.toolName === "directUpdateTool") {
+        const { filter, newValues } = toolCall.input as {
+          filter?: FilterInput;
+          newValues: Record<string, unknown>;
+        };
+        const indicesToUpdate = applyFilter(mappedJson, filter);
+
+        const newData = [...mappedJson];
+        indicesToUpdate.forEach((index) => {
+          newData[index] = { ...newData[index], ...newValues };
+        });
+        saveMappedJson(newData);
+
+        // Following the blog's advice to return meaningful context
+        const resultMessage = filter
+          ? `Updated ${indicesToUpdate.length} rows matching the criteria.`
+          : `Updated ${indicesToUpdate.length} rows (all rows).`;
+
+        toast.success(resultMessage);
+
+        // Per-Cell Processing Tool Logic
+      } else if (toolCall.toolName === "processCellsTool") {
+        console.log("Tool call:", toolCall);
+        console.log("Mapped JSON:", mappedJson);
+        handleSomething();
+        const { filter, fieldToProcess, processingPrompt } = toolCall.input as {
+          filter?: FilterInput;
+          fieldToProcess: string;
+          processingPrompt: string;
+        };
+
+        if (!fieldToProcess) {
+          toast.error("processCellsTool did not specify a field to process.");
+          return;
+          
+        }
+
+        debugger;
+
+        const indicesToProcess = filter
+          ? applyFilter(mappedJson, filter)
+          : mappedJson.map((_, index) => index);
+
+          debugger;
+
+        if (indicesToProcess.length === 0) {
+          toast.info("No rows matched the requested transformation.");
+          return;
+        }
+
+        toast.info(
+          `Starting transformation on ${indicesToProcess.length} cells in the '${fieldToProcess}' column...`
+        );
+
+        const promises = indicesToProcess.map(async (index) => {
+          const currentValue = mappedJson[index]?.[fieldToProcess];
+          const res = await fetch("/api/process-cell", {
+            method: "POST",
+            body: JSON.stringify({
+              prompt: processingPrompt,
+              value: currentValue,
+            }),
+          });
+          if (!res.ok) throw new Error(`API call failed for row ${index + 1}`);
+          const { newValue } = await res.json();
+          return { index, newValue };
+        });
+
+        try {
+          const results = await Promise.all(promises);
+          const newData = [...mappedJson];
+          results.forEach(({ index, newValue }) => {
+            newData[index] = {
+              ...newData[index],
+              [fieldToProcess]: newValue,
+            };
+          });
+          saveMappedJson(newData);
+
+          toast.success("Transformation complete!");
+        } catch (error: unknown) {
+          const errorMessage = `An error occurred during processing: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`;
+          toast.error(errorMessage);
+        }
+      }
+    },
+  });
   const [input, setInput] = useState("");
-  const { page, totalPages, startIndex, endIndex, pageItems, goPrev, goNext, goTo } = usePagination(
-    mappedJson.length,
-    PAGE_SIZE,
-  );
+  const {
+    page,
+    totalPages,
+    startIndex,
+    endIndex,
+    pageItems,
+    goPrev,
+    goNext,
+    goTo,
+  } = usePagination(mappedJson.length, PAGE_SIZE);
 
   const dims = useMemo(() => {
     const rows = mappedJson.length;
@@ -56,36 +232,42 @@ export function ChatPane() {
     return { rows, fields: fieldSet.size };
   }, [mappedJson]);
 
-  const pagedRows = useMemo(() => mappedJson.slice(startIndex, endIndex), [mappedJson, startIndex, endIndex]);
+  const pagedRows = useMemo(
+    () => mappedJson.slice(startIndex, endIndex),
+    [mappedJson, startIndex, endIndex]
+  );
 
-  const suggested = [
-    "Remove any empty or null values",
-    "Trim whitespace from all fields",
-    "Standardize phone number formats",
-    "Title-case the product names",
-    "Change supplier in row 1 to Acme",
-  ];
   const handleSubmit = (message: PromptInputMessage) => {
     const hasText = Boolean(message.text);
     const hasFiles = Boolean(message.files?.length);
     if (!hasText && !hasFiles) return;
-    sendMessage({ text: message.text || "", files: message.files });
+    sendMessage(
+      {
+        text: message.text || "",
+        files: message.files,
+      },
+      {
+        body: {
+            metadata: { schema: tableSchema, sampleData },
+        }
+      }
+    );
     setInput("");
   };
 
   return (
     <div className="w-full space-y-6">
-      {/* Header */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Refine Your Data</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            Refine Your Data
+          </h2>
           <p className="text-sm text-muted-foreground">
             Chat with AI to clean, validate, and enhance your data.
           </p>
         </div>
       </div>
 
-      {/* Main Interaction Area */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: Data Table */}
         <Card>
@@ -94,11 +276,16 @@ export function ChatPane() {
               <Sparkles className="size-4 text-primary" />
               <CardTitle className="text-base">Current Data</CardTitle>
             </div>
-            <Badge variant="secondary">{dims.fields} fields • {dims.rows} rows</Badge>
+            <Badge variant="secondary">
+              {dims.fields} fields • {dims.rows} rows
+            </Badge>
           </CardHeader>
           <CardContent>
             <DataPreviewTable
-              columns={PRODUCT_FIELDS.map((f) => ({ key: f.key, label: f.label }))}
+              columns={PRODUCT_FIELDS.map((f) => ({
+                key: f.key,
+                label: f.label,
+              }))}
               rows={pagedRows}
             />
             {mappedJson.length > PAGE_SIZE ? (
@@ -112,11 +299,17 @@ export function ChatPane() {
                         goPrev();
                       }}
                       aria-disabled={page === 1}
-                      className={page === 1 ? "pointer-events-none opacity-50" : undefined}
+                      className={
+                        page === 1
+                          ? "pointer-events-none opacity-50"
+                          : undefined
+                      }
                     />
                   </PaginationItem>
                   {pageItems.map((item, idx) => (
-                    <PaginationItem key={typeof item === "number" ? item : `ellipsis-${idx}`}>
+                    <PaginationItem
+                      key={typeof item === "number" ? item : `ellipsis-${idx}`}
+                    >
                       {item === "ellipsis" ? (
                         <PaginationEllipsis />
                       ) : (
@@ -141,7 +334,11 @@ export function ChatPane() {
                         goNext();
                       }}
                       aria-disabled={page === totalPages}
-                      className={page === totalPages ? "pointer-events-none opacity-50" : undefined}
+                      className={
+                        page === totalPages
+                          ? "pointer-events-none opacity-50"
+                          : undefined
+                      }
                     />
                   </PaginationItem>
                 </PaginationContent>
@@ -155,7 +352,9 @@ export function ChatPane() {
           <Card>
             <CardHeader>
               <CardTitle>Assistant</CardTitle>
-              <CardDescription>Ask for cleaning, validation, and transformations.</CardDescription>
+              <CardDescription>
+                Ask for cleaning, validation, and transformations.
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex h-[520px] flex-col">
               <Conversation className="flex-1">
@@ -171,19 +370,25 @@ export function ChatPane() {
                                   <Response>{part.text}</Response>
                                 </MessageContent>
                               </Message>
-                              {message.role === "assistant" && message.id === messages.at(-1)?.id && (
-                                <Actions className="mt-2">
-                                  <Action onClick={() => regenerate()} label="Retry">
-                                    <RefreshCcwIcon className="size-3" />
-                                  </Action>
-                                  <Action
-                                    onClick={() => navigator.clipboard.writeText(part.text)}
-                                    label="Copy"
-                                  >
-                                    <CopyIcon className="size-3" />
-                                  </Action>
-                                </Actions>
-                              )}
+                              {message.role === "assistant" &&
+                                message.id === messages.at(-1)?.id && (
+                                  <Actions className="mt-2">
+                                    <Action
+                                      onClick={() => regenerate()}
+                                      label="Retry"
+                                    >
+                                      <RefreshCcwIcon className="size-3" />
+                                    </Action>
+                                    <Action
+                                      onClick={() =>
+                                        navigator.clipboard.writeText(part.text)
+                                      }
+                                      label="Copy"
+                                    >
+                                      <CopyIcon className="size-3" />
+                                    </Action>
+                                  </Actions>
+                                )}
                             </Fragment>
                           );
                         }
@@ -221,7 +426,10 @@ export function ChatPane() {
                   />
                 </PromptInputBody>
                 <PromptInputToolbar>
-                  <PromptInputSubmit disabled={!input && status !== "streaming"} status={status} />
+                  <PromptInputSubmit
+                    disabled={!input && status !== "streaming"}
+                    status={status}
+                  />
                 </PromptInputToolbar>
               </PromptInput>
             </CardContent>
@@ -229,17 +437,21 @@ export function ChatPane() {
         </div>
       </div>
 
-      {/* Navigation */}
       <div className="flex items-center justify-between border-t pt-4">
         <Button variant="outline" onClick={() => saveMappingConfirmed(false)}>
           <ArrowLeft className="mr-2 size-4" /> Back to Mapping
         </Button>
         <Button
-          onClick={() => toast.info("Export flow is not implemented in this demo.")}
+          onClick={() =>
+            toast.info("Export flow is not implemented in this demo.")
+          }
         >
           Continue to Export <ArrowRight className="ml-2 size-4" />
         </Button>
       </div>
+      {process.env.NODE_ENV === 'development' && (
+        <AIDevtools />
+      )}
     </div>
   );
 }

@@ -175,16 +175,29 @@ export function ChatPane() {
           filter?: FilterInput;
           newValues: Record<string, unknown>;
         };
-        const indicesToUpdate = applyFilter(mappedJson, filter);
-        const newData = [...mappedJson];
-        indicesToUpdate.forEach((index) => {
-          newData[index] = { ...newData[index], ...newValues };
+        // Compute a snapshot-based count for messaging only.
+        const indicesToUpdateForMsg = applyFilter(mappedJson, filter);
+        // Use functional update to merge onto the latest state and avoid stale snapshots.
+        saveMappedJson((prev) => {
+          const indicesToUpdate = applyFilter(prev, filter);
+          const next = [...prev];
+          indicesToUpdate.forEach((index) => {
+            next[index] = { ...next[index], ...newValues };
+          });
+          if (process.env.NODE_ENV === 'development') {
+            console.debug(
+              "[directUpdateTool] updated rows:",
+              indicesToUpdate.length,
+              "fields:",
+              Object.keys(newValues ?? {})
+            );
+          }
+          return next;
         });
-        saveMappedJson(newData);
 
         const resultMessage = filter
-          ? `Updated ${indicesToUpdate.length} rows matching the criteria.`
-          : `Updated ${indicesToUpdate.length} rows (all rows).`;
+          ? `Updated ${indicesToUpdateForMsg.length} rows matching the criteria.`
+          : `Updated ${indicesToUpdateForMsg.length} rows (all rows).`;
 
         toast.success(resultMessage);
 
@@ -194,7 +207,7 @@ export function ChatPane() {
             tool: "directUpdateTool",
             toolCallId: toolCall.toolCallId,
             output: {
-              updatedRowCount: indicesToUpdate.length,
+              updatedRowCount: indicesToUpdateForMsg.length,
               updatedFields: Object.keys(newValues ?? {}),
               filterApplied: Boolean(filter),
             },
@@ -257,14 +270,26 @@ export function ChatPane() {
 
         try {
           const results = await Promise.all(promises);
-          const newData = [...mappedJson];
-          results.forEach(({ index, newValue }) => {
-            newData[index] = {
-              ...newData[index],
-              [fieldToProcess]: newValue,
-            };
+          // Use functional update so previously updated fields are preserved
+          // even if multiple transformations resolve out of order.
+          saveMappedJson((prev) => {
+            const next = [...prev];
+            results.forEach(({ index, newValue }) => {
+              next[index] = {
+                ...next[index],
+                [fieldToProcess]: newValue,
+              };
+            });
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(
+                "[processCellsTool] applied results:",
+                results.length,
+                "field:",
+                fieldToProcess
+              );
+            }
+            return next;
           });
-          saveMappedJson(newData);
 
           toast.success("Transformation complete!");
 

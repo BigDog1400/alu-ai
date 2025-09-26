@@ -111,16 +111,30 @@ mappedJsonAtom.onMount = (set) => {
   };
 };
 
-const mappedJsonWriteAtom = atom(null, (_get, set, value: Record<string, unknown>[]) => {
-  set(mappedJsonAtom, value);
+type MappedJson = Record<string, unknown>[];
 
-  if (typeof window === "undefined") return;
+const mappedJsonWriteAtom = atom(
+  null,
+  (
+    get,
+    set,
+    value: MappedJson | ((prev: MappedJson) => MappedJson)
+  ) => {
+    const nextValue: MappedJson =
+      typeof value === "function"
+        ? (value as (prev: MappedJson) => MappedJson)(get(mappedJsonAtom))
+        : value;
 
-  try {
-    localStorage.setItem(MAPPED_JSON_KEY, JSON.stringify(value));
-    window.dispatchEvent(new Event(MAPPED_JSON_EVENT));
-  } catch {}
-});
+    set(mappedJsonAtom, nextValue);
+
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.setItem(MAPPED_JSON_KEY, JSON.stringify(nextValue));
+      window.dispatchEvent(new Event(MAPPED_JSON_EVENT));
+    } catch {}
+  }
+);
 
 const mappingConfirmedAtom = atom<boolean>(false);
 mappingConfirmedAtom.onMount = (set) => {
@@ -179,7 +193,8 @@ export function useParsedUploadStorage() {
   );
 
   const saveMappedJson = useCallback(
-    (value: Record<string, unknown>[]) => {
+    (value: MappedJson | ((prev: MappedJson) => MappedJson)) => {
+      // Delegate to the write atom which supports functional updates to avoid stale closures
       writeMappedJson(value);
     },
     [writeMappedJson],

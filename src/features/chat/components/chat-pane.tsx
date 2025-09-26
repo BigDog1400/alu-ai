@@ -73,6 +73,8 @@ type FilterInput = {
   value?: unknown;
 };
 
+const PROCESS_CELLS_CONCURRENCY = 10;
+
 const applyFilter = (
   data: Record<string, unknown>[],
   filter?: FilterInput
@@ -184,14 +186,6 @@ export function ChatPane() {
           indicesToUpdate.forEach((index) => {
             next[index] = { ...next[index], ...newValues };
           });
-          if (process.env.NODE_ENV === 'development') {
-            console.debug(
-              "[directUpdateTool] updated rows:",
-              indicesToUpdate.length,
-              "fields:",
-              Object.keys(newValues ?? {})
-            );
-          }
           return next;
         });
 
@@ -254,69 +248,75 @@ export function ChatPane() {
           `Starting transformation on ${indicesToProcess.length} cells in the '${fieldToProcess}' column...`
         );
 
-        const promises = indicesToProcess.map(async (index) => {
-          const currentValue = mappedJson[index]?.[fieldToProcess];
-          const res = await fetch("/api/process-cell", {
-            method: "POST",
-            body: JSON.stringify({
-              prompt: processingPrompt,
-              value: currentValue,
-            }),
-          });
-          if (!res.ok) throw new Error(`API call failed for row ${index + 1}`);
-          const { newValue } = await res.json();
-          return { index, newValue };
-        });
+        let processedCount = 0;
+        const failures: { index: number; message: string }[] = [];
+        let workingRows = mappedJson;
 
-        try {
-          const results = await Promise.all(promises);
-          // Use functional update so previously updated fields are preserved
-          // even if multiple transformations resolve out of order.
-          saveMappedJson((prev) => {
-            const next = [...prev];
-            results.forEach(({ index, newValue }) => {
+        const processIndex = async (index: number) => {
+          const currentValue = workingRows[index]?.[fieldToProcess];
+
+          try {
+            const res = await fetch("/api/process-cell", {
+              method: "POST",
+              body: JSON.stringify({
+                prompt: processingPrompt,
+                value: currentValue,
+              }),
+            });
+            if (!res.ok) {
+              throw new Error(`API call failed for row ${index + 1}`);
+            }
+
+            const { newValue } = await res.json();
+
+            saveMappedJson((prev) => {
+              const next = [...prev];
+              const previousRow = prev[index] ?? {};
               next[index] = {
-                ...next[index],
+                ...previousRow,
                 [fieldToProcess]: newValue,
               };
+              workingRows = next;
+              return next;
             });
-            if (process.env.NODE_ENV === 'development') {
-              console.debug(
-                "[processCellsTool] applied results:",
-                results.length,
-                "field:",
-                fieldToProcess
-              );
-            }
-            return next;
+
+            processedCount += 1;
+          } catch (error: unknown) {
+            const message = `Row ${index + 1}: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`;
+            failures.push({ index, message });
+            console.error("processCellsTool error", error);
+          }
+        };
+
+        const queue = [...indicesToProcess];
+        while (queue.length > 0) {
+          const batch = queue.splice(0, PROCESS_CELLS_CONCURRENCY);
+          await Promise.all(batch.map((index) => processIndex(index)));
+        }
+
+        if (failures.length === 0) {
+          toast.success(`Transformation complete! Updated ${processedCount} cells.`);
+        } else if (processedCount > 0) {
+          toast.error(
+            `Transformation finished with ${failures.length} errors. ${processedCount} cells updated.`
+          );
+        } else {
+          toast.error("No cells were updated due to errors.");
+        }
+
+        // Provide tool result back so the assistant can continue
+        if (!toolCall.dynamic) {
+          addToolResult({
+            tool: "processCellsTool",
+            toolCallId: toolCall.toolCallId,
+            output: {
+              processedCount,
+              field: fieldToProcess,
+              errors: failures.map((failure) => failure.message),
+            },
           });
-
-          toast.success("Transformation complete!");
-
-          // Provide tool result back so the assistant can continue
-          if (!toolCall.dynamic) {
-            addToolResult({
-              tool: "processCellsTool",
-              toolCallId: toolCall.toolCallId,
-              output: {
-                processedCount: results.length,
-                field: fieldToProcess,
-              },
-            });
-          }
-        } catch (error: unknown) {
-          const errorMessage = `An error occurred during processing: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`;
-          toast.error(errorMessage);
-
-          if (!toolCall.dynamic) {
-            addToolResult({
-              tool: "processCellsTool",
-              toolCallId: toolCall.toolCallId,
-              output: { error: errorMessage },
-            });
-          }
         }
       }
     },

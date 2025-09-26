@@ -64,6 +64,14 @@ export function MappingConfirm() {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+
+        <div className="rounded-md border border-dashed border-muted-foreground/30 bg-muted/20 p-4 text-sm text-muted-foreground">
+            <p className="flex items-center justify-center gap-2 text-center">
+              <ArrowRight className="size-4 text-muted-foreground/60" />
+              Scroll down to confirm your mapping once you&apos;re satisfied.
+            </p>
+          </div>
+
           <div className="hidden gap-4 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
             <Label className="text-xs uppercase tracking-wide text-muted-foreground">CSV Data column</Label>
             <span />
@@ -152,10 +160,13 @@ export function MappingConfirm() {
             })}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:gap-4">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4 pt-2">
+            <Button type="button" variant="ghost" onClick={clearAll}>
+              Choose another file
+            </Button>
             <Button
               type="button"
-              className="order-2 sm:order-1"
+              className="sm:min-w-[180px]"
               onClick={() => {
                 if (!parsedUpload) return;
                 const full = applyColumnMap(parsedUpload.rows, columnMap, PRODUCT_FIELDS);
@@ -166,11 +177,6 @@ export function MappingConfirm() {
             >
               Confirm mapping
             </Button>
-            <div className="order-1 flex items-center justify-between gap-2 sm:order-2">
-              <Button type="button" variant="ghost" onClick={clearAll}>
-                Choose another file
-              </Button>
-            </div>
           </div>
         </div>
       </CardContent>

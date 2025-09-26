@@ -6,14 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useParsedUploadStorage } from "@/features/upload/hooks/use-parsed-upload-storage";
 import { PRODUCT_FIELDS } from "@/features/mapping/fields";
+import { usePagination } from "@/features/chat/hooks/use-pagination";
+import { DataPreviewTable } from "@/features/chat/components/data-preview-table";
 import { ArrowLeft, ArrowRight, Send, Bot, User, Sparkles, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 type ChatMessage = { role: "user" | "assistant"; content: string; updated?: boolean };
+const PAGE_SIZE = 10;
 
 function ThreeDots() {
   return (
@@ -27,7 +38,6 @@ function ThreeDots() {
 
 export function ChatPane() {
   const { mappedJson, saveMappingConfirmed } = useParsedUploadStorage();
-  const [showPreview, setShowPreview] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
@@ -37,6 +47,10 @@ export function ChatPane() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { page, totalPages, startIndex, endIndex, pageItems, goPrev, goNext, goTo } = usePagination(
+    mappedJson.length,
+    PAGE_SIZE,
+  );
 
   const dims = useMemo(() => {
     const rows = mappedJson.length;
@@ -48,7 +62,7 @@ export function ChatPane() {
     return { rows, fields: fieldSet.size };
   }, [mappedJson]);
 
-  const sampleRows = useMemo(() => mappedJson.slice(0, 3), [mappedJson]);
+  const pagedRows = useMemo(() => mappedJson.slice(startIndex, endIndex), [mappedJson, startIndex, endIndex]);
 
   const suggested = [
     "Remove any empty or null values",
@@ -91,13 +105,11 @@ export function ChatPane() {
             Chat with AI to clean, validate, and enhance your data.
           </p>
         </div>
-        <Button variant="outline" onClick={() => setShowPreview((v) => !v)}>
-          {showPreview ? "Hide Data Preview" : "Show Data Preview"}
-        </Button>
       </div>
 
-      {/* Data Preview */}
-      {showPreview && (
+      {/* Main Interaction Area */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Left: Data Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
@@ -107,100 +119,122 @@ export function ChatPane() {
             <Badge variant="secondary">{dims.fields} fields • {dims.rows} rows</Badge>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {PRODUCT_FIELDS.map((f) => (
-                      <TableHead key={f.key} className="whitespace-nowrap">
-                        {f.label}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sampleRows.map((row, i) => (
-                    <TableRow key={i}>
-                      {PRODUCT_FIELDS.map((f) => (
-                        <TableCell key={f.key} className="max-w-[220px] truncate text-xs">
-                          {String(row[f.key] ?? "")}
-                        </TableCell>
-                      ))}
-                    </TableRow>
+            <DataPreviewTable
+              columns={PRODUCT_FIELDS.map((f) => ({ key: f.key, label: f.label }))}
+              rows={pagedRows}
+            />
+            {mappedJson.length > PAGE_SIZE ? (
+              <Pagination className="mt-4">
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        goPrev();
+                      }}
+                      aria-disabled={page === 1}
+                      className={page === 1 ? "pointer-events-none opacity-50" : undefined}
+                    />
+                  </PaginationItem>
+                  {pageItems.map((item, idx) => (
+                    <PaginationItem key={typeof item === "number" ? item : `ellipsis-${idx}`}>
+                      {item === "ellipsis" ? (
+                        <PaginationEllipsis />
+                      ) : (
+                        <PaginationLink
+                          href="#"
+                          isActive={item === page}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            goTo(item);
+                          }}
+                        >
+                          {item}
+                        </PaginationLink>
+                      )}
+                    </PaginationItem>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Main Interaction Area */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: Chat */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Assistant</CardTitle>
-            <CardDescription>Ask for cleaning, validation, and transformations.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex h-[520px] flex-col">
-            <div ref={scrollRef} className="flex-1 space-y-3 overflow-auto rounded-md border bg-muted/40 p-3">
-              {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`max-w-[80%] rounded-md px-3 py-2 text-sm ${
-                    m.role === "assistant"
-                      ? "bg-background text-foreground/90 shadow border"
-                      : "bg-primary text-primary-foreground ml-auto"
-                  }`}
-                >
-                  <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
-                    {m.role === "assistant" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
-                    <span>{m.role === "assistant" ? "Assistant" : "You"}</span>
-                    {m.updated && (
-                      <Badge variant="outline" className="ml-2 h-5 px-1.5 text-[10px]">
-                        Data updated
-                      </Badge>
-                    )}
-                  </div>
-                  <div>{m.content}</div>
-                </div>
-              ))}
-
-              {thinking && (
-                <div className="max-w-[80%] rounded-md border bg-background px-3 py-2 text-sm shadow">
-                  <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
-                    <Bot className="size-3.5" />
-                    <span>Assistant</span>
-                  </div>
-                  <ThreeDots />
-                </div>
-              )}
-            </div>
-
-            <Separator className="my-3" />
-
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend(input);
-              }}
-            >
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask me to clean, validate, or transform your data..."
-              />
-              <Button type="submit" className="h-10 w-10 p-0" title="Send">
-                <Send className="size-4" />
-              </Button>
-            </form>
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        goNext();
+                      }}
+                      aria-disabled={page === totalPages}
+                      className={page === totalPages ? "pointer-events-none opacity-50" : undefined}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            ) : null}
           </CardContent>
         </Card>
 
-        {/* Right: Suggestions panel */}
+        {/* Right: Chat Panel */}
         <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Assistant</CardTitle>
+              <CardDescription>Ask for cleaning, validation, and transformations.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex h-[520px] flex-col">
+              <div ref={scrollRef} className="flex-1 space-y-3 overflow-auto rounded-md border bg-muted/40 p-3">
+                {messages.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`max-w-[80%] rounded-md px-3 py-2 text-sm ${
+                      m.role === "assistant"
+                        ? "bg-background text-foreground/90 shadow border"
+                        : "bg-primary text-primary-foreground ml-auto"
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
+                      {m.role === "assistant" ? <Bot className="size-3.5" /> : <User className="size-3.5" />}
+                      <span>{m.role === "assistant" ? "Assistant" : "You"}</span>
+                      {m.updated && (
+                        <Badge variant="outline" className="ml-2 h-5 px-1.5 text-[10px]">
+                          Data updated
+                        </Badge>
+                      )}
+                    </div>
+                    <div>{m.content}</div>
+                  </div>
+                ))}
+
+                {thinking && (
+                  <div className="max-w-[80%] rounded-md border bg-background px-3 py-2 text-sm shadow">
+                    <div className="mb-1 flex items-center gap-2 text-xs opacity-80">
+                      <Bot className="size-3.5" />
+                      <span>Assistant</span>
+                    </div>
+                    <ThreeDots />
+                  </div>
+                )}
+              </div>
+
+              <Separator className="my-3" />
+
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend(input);
+                }}
+              >
+                <Input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask me to clean, validate, or transform your data..."
+                />
+                <Button type="submit" className="h-10 w-10 p-0" title="Send">
+                  <Send className="size-4" />
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Suggested Actions</CardTitle>

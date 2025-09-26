@@ -2,8 +2,8 @@ import { AppFlow } from "@/features/app/app-flow";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center px-6 py-16">
+    <div className="container mx-auto px-4 py-8">
+      <div className="mx-auto max-w-7xl">
         <header className="mb-12 text-center">
           <p className="text-xs font-medium uppercase tracking-[0.4em] text-muted-foreground">
             Alu AI / Milestone 1
